@@ -1,0 +1,67 @@
+name: Post Videos to Facebook
+
+on:
+  schedule:
+    - cron: '*/2 * * * *'  # Har 2 minute me chalega
+
+jobs:
+  post-videos:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install requests pandas
+
+      - name: Post videos to Facebook
+        run: |
+          import requests
+          import pandas as pd
+          from time import sleep
+          import re
+
+          # Facebook API credentials
+          access_token = '${{ secrets.FACEBOOK_ACCESS_TOKEN }}'
+          page_id = '${{ secrets.FACEBOOK_PAGE_ID }}'
+
+          def extract_file_id_from_url(url):
+              match = re.search(r'id=([^&]+)', url)
+              return match.group(1) if match else None
+
+          def upload_video_to_facebook(file_id, description):
+              file_url = f'https://drive.google.com/uc?export=download&id={file_id}'
+              video_file_path = '/tmp/video.mp4'
+              response = requests.get(file_url)
+              with open(video_file_path, 'wb') as file:
+                  file.write(response.content)
+
+              upload_url = f'https://graph.facebook.com/v20.0/{page_id}/videos'
+              with open(video_file_path, 'rb') as video_file:
+                  upload_response = requests.post(upload_url, files={'file': video_file}, data={
+                      'access_token': access_token,
+                      'description': description
+                  })
+
+              if upload_response.status_code == 200:
+                  print(f'Video uploaded successfully from file ID: {file_id}')
+              else:
+                  print(f'Error uploading video from file ID {file_id}: {upload_response.text}')
+
+          def process_csv_and_upload(csv_file_path):
+              df = pd.read_csv(csv_file_path)
+              for _, row in df.iterrows():
+                  file_id = extract_file_id_from_url(row['URL'])
+                  description = row['description'] if 'description' in row else 'Default description'
+                  if pd.notna(file_id):
+                      upload_video_to_facebook(file_id, description)
+                      sleep(120)
+
+          process_csv_and_upload('video_urls.csv')
